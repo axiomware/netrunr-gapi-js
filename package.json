@@ -1,0 +1,31 @@
+{
+  "name": "netrunr-gapi",
+  "version": "1.0.0",
+  "description": "Javascript API/SDK for Netrunr Bluetooth Gateway",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha --reporter spec"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/axiomware/netrunr-gapi-js.git"
+  },
+  "keywords": [
+    "Netrunr",
+    "Bluetooth",
+    "Gateway"
+  ],
+  "author": "Axiomware Systems Inc <swdev@axiomware.com> (http://www.axiomware.com)",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/axiomware/netrunr-gapi-js/issues"
+  },
+  "engines": {
+    "node": ">=4.2.4"
+  },
+  "homepage": "https://github.com/axiomware/netrunr-gapi-js#readme",
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "mocha": "^5.0.0"
+  }
+}
