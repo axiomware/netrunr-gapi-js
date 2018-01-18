@@ -1,6 +1,6 @@
 {
   "name": "netrunr-gapi",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Javascript API/SDK for Netrunr Bluetooth Gateway",
   "main": "index.js",
   "scripts": {
