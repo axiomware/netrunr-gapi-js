@@ -1,7 +1,7 @@
 Netrunr Gateway API
 =========
 
-A Javascript API to access Axiomware's Netrunr Gateways
+A Javascript API to access [Axiomware's](http://www.axiomware.com) [Netrunr](http://www.axiomware.com/netrunr-b24c-product.html) Gateways
 
 ## Installation
 
