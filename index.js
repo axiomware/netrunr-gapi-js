@@ -107,7 +107,7 @@ if (typeof window == "undefined") {
 }
 
 /* API release version */
-appc.VERSION = "1.0.0";
+appc.VERSION = "1.0.4";
 
 /* API errors */
 appc.ERROR_SUCCESS = 200;
@@ -262,6 +262,7 @@ appc.gapi = function(obj) {
   this.gapiUser = '';
   this.gapiPwd = '';
   this.gwid = this.getRESTGWID();
+  this.gwids = new Array();
 
   this.inited = 0;
   this.loggedIn = 0;
@@ -284,6 +285,7 @@ appc.gapi = function(obj) {
   /* TBD: remove this and describe... */
   this.useLegacyDescribe = false;
 
+  this.debug = 0;
   this.verbose = 0;
 };
 
@@ -296,6 +298,7 @@ appc.gapi = function(obj) {
 
 /* Configure API */
 appc.gapi.prototype.config = function(cobj) {
+  var valid = 0;
   if (!cobj || this.connected)
     return 0;
 
@@ -336,8 +339,22 @@ appc.gapi.prototype.config = function(cobj) {
   else if (this.token != "undefined")
     this.gapiPwd = this.token;
 
-  if (typeof cobj['gwid'] != "undefined")
+  if (typeof cobj['gwid'] != "undefined") {
+    /* Only allow valid GWID */
+    for (var ii = 0; ii < this.gwids.length; ii++) {
+      if (cobj['gwid'] == this.gwids[ii]) {
+	valid = 1;
+	break;
+      }
+    }
+    if (!valid) {
+      if (this.verbose)
+	console.log('appc.gapi.config: ERROR: invalid GWID: ' + cobj['gwid']);
+      return 0;
+    }
+
     this.gwid = cobj['gwid'];
+  }
 
   /* Transport channels */
 
@@ -370,9 +387,12 @@ appc.gapi.prototype.login = function(obj, success, error) {
 		      'tid' : robj['tid'],
 		      'token' : robj['token']
 		    };
-
+		    
+		    /* Valid GWIDS */
+		    self.gwids = robj['gwid'];
 		    self.loggedIn = 1;
 
+		   /* Set default GWID */
 		    if (robj['gwid']) {
 		      if (robj['gwid'] instanceof Array)
 			sobj['gwid'] = robj['gwid'][0];
@@ -419,8 +439,19 @@ appc.gapi.prototype.auth = function(obj, success, error) {
 		     'user': obj['user'],
 		     'tid': robj['tid'],
 		     'token': robj['token'],
-		     'gwid': robj['gwid']
+		     'gwid': ''
 		   };
+
+		   /* Valid GWIDS */
+		   self.gwids = robj['gwid'];
+
+		   /* Set default GWID */
+		   if (robj['gwid']) {
+		     if (robj['gwid'] instanceof Array)
+		       sobj['gwid'] = robj['gwid'][0];
+		     else
+		       sobj['gwid'] = robj['gwid'];
+		   }
 
 		   if (!robj['token']) {
 		     if (error)
@@ -1685,6 +1716,12 @@ appc.gapi.prototype.version = function(obj, success, error) {
   this.transport.version(obj, success, error);
 };
 
+appc.gapi.prototype.versionsdk = function(obj, success, error) {
+  if (success)
+    success({'result': appc.ERROR_SUCCESS, 'version': appc.VERSION});
+  return appc.VERSION;
+};
+
 /* Testing / Debugging */
 appc.gapi.prototype.echo = function(obj, success, error) {
   var self = this;
@@ -2223,8 +2260,6 @@ appc.gapi.http.prototype.notifier = function(obj, success, error) {
 		if (self.notifying) {
 		  setTimeout(function() {
 		    self.notifier(obj, null, null);
-		    /* TEST FOR MESSAGE LOSS */
-		    //}, 2000);
 		  }, 5000);
 		}
 	      }
@@ -2851,6 +2886,7 @@ appc.gapi.ws.prototype.init = function(parent) {
   this.host = parent.host;
   this.port = parent.port;
 
+  this.debug = parent.debug;
   this.verbose = parent.verbose;
 };
 
@@ -2929,7 +2965,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
 
 
   client.on('connect', function(connack) {
-    if (self.verbose)
+    if (self.debug)
       console.log('appc.gapi.ws._openNode:onconnect:' + JSON.stringify(connack));
     self.connected = 1;
     if (parent.opened)
@@ -2956,7 +2992,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
       client.subscribe(self.gwid + '/' + self.channelReportOut, subscribeOptions, scb);
       client.subscribe(self.gwid + '/' + self.channelEventOut, subscribeOptions, scb);
     } catch(e) {
-	if (self.verbose)
+	if (self.debug)
 	  console.log('appc.gapi.ws._openNode: exception: ' + e.message);
     }
 
@@ -2973,19 +3009,19 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
 
   });
   client.on('reconnect', function(data) {
-    if (self.verbose)
+    if (self.debug)
       console.log('appc.gapi.ws._openNode:onreconnect:' + data);
   });
   client.on('close', function(data) {
-    if (self.verbose)
+    if (self.debug)
       console.log('appc.gapi.ws._openNode:onclose: ' + data);
   });
   client.on('offline', function(data) {
-    if (self.verbose)
+    if (self.debug)
       console.log('appc.gapi.ws._openNode:onoffline: ' + data);
   });
   client.on('error', function(data) {
-    if (self.verbose)
+    if (self.debug)
       console.log('appc.gapi.ws._openNode:onerror:' + data);
 
     /* Generic open error */
