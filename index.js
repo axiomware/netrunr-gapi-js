@@ -608,7 +608,8 @@ appc.gapi.prototype.close = function(obj, success, error) {
  *  active - 0 (passive) or 1 (active)
  *  period - N seconds
  */
-appc.gapi.prototype.list = function(obj, success, error) {
+appc.gapi.prototype.list = function(cobj, success, error) {
+  var obj;
   var self = this;
 
   if (!self.isAuth()) {
@@ -628,6 +629,8 @@ appc.gapi.prototype.list = function(obj, success, error) {
       error({'result':appc.ERROR_CONFLICT});
     return 0;
   }
+
+  obj = JSON.parse(JSON.stringify(cobj));
 
   self._setProcessing(null, 1);
 
@@ -669,8 +672,11 @@ appc.gapi.prototype.list = function(obj, success, error) {
  * Input object properties:
  *  did - device id (address)
  */
-appc.gapi.prototype.connect = function(obj, success, error) {
+appc.gapi.prototype.connect = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
   obj = this.defaultConnectArgs(obj);
 
@@ -740,8 +746,11 @@ appc.gapi.prototype.connect = function(obj, success, error) {
  * Input object properties:
  *  did - device id (device address) or ''/0/null (all devices)
  */
-appc.gapi.prototype.disconnect = function(obj, success, error) {
+appc.gapi.prototype.disconnect = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
     
   if (!self.isAuth()) {
@@ -842,8 +851,11 @@ appc.gapi.prototype.disconnect = function(obj, success, error) {
  * Input object properties:
  *  did - device id (address) [optional]
  */
-appc.gapi.prototype.show = function(obj, success, error) {
+appc.gapi.prototype.show = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -888,8 +900,11 @@ appc.gapi.prototype.show = function(obj, success, error) {
 			     });
 };
 
-appc.gapi.prototype.services = function(obj, success, error) {
+appc.gapi.prototype.services = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = self.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -945,9 +960,12 @@ appc.gapi.prototype.services = function(obj, success, error) {
 				    });
 };
 
-appc.gapi.prototype.characteristics = function(obj, success, error) {
+appc.gapi.prototype.characteristics = function(cobj, success, error) {
+  var obj;
   var self = this;
   var count = 0;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = self.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1027,9 +1045,12 @@ appc.gapi.prototype.characteristics = function(obj, success, error) {
 				    });
 };
 
-appc.gapi.prototype.descriptors = function(obj, success, error) {
+appc.gapi.prototype.descriptors = function(cobj, success, error) {
+  var obj;
   var self = this;
   var count = 0;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = self.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1114,8 +1135,11 @@ appc.gapi.prototype.descriptors = function(obj, success, error) {
 /* 
  * Read device Characteristic or Descriptor
  */
-appc.gapi.prototype.read = function(obj, success, error) {
+appc.gapi.prototype.read = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = self.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1178,8 +1202,11 @@ appc.gapi.prototype.read = function(obj, success, error) {
  *  ch
  *  value
  */
-appc.gapi.prototype.write = function(obj, success, error) {
+appc.gapi.prototype.write = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1252,8 +1279,11 @@ appc.gapi.prototype.write = function(obj, success, error) {
  *  ch
  *  value
  */
-appc.gapi.prototype.writenoresponse = function(obj, success, error) {
+appc.gapi.prototype.writenoresponse = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1328,8 +1358,11 @@ appc.gapi.prototype.writenoresponse = function(obj, success, error) {
  *  notify: 1 (Notification), 0 (Indication)
  *
  */
-appc.gapi.prototype.subscribe = function(obj, success, error) {
+appc.gapi.prototype.subscribe = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1393,8 +1426,11 @@ appc.gapi.prototype.subscribe = function(obj, success, error) {
  *  ch    : GATT characteristic
  *  notify: 1 (Notification), 0 (Indication)
  */
-appc.gapi.prototype.unsubscribe = function(obj, success, error) {
+appc.gapi.prototype.unsubscribe = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1461,8 +1497,11 @@ appc.gapi.prototype.unsubscribe = function(obj, success, error) {
  *  ch    : GATT characteristic
  *  min_notify: (ignored)
  */
-appc.gapi.prototype.notified = function(obj, success, error) {
+appc.gapi.prototype.notified = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultNotifiedArgs(obj, success, error);
 
   if (!self.isAuth()) {
@@ -1507,8 +1546,11 @@ appc.gapi.prototype.notified = function(obj, success, error) {
 
 
 /* Reports */
-appc.gapi.prototype.report = function(obj, success, error) {
+appc.gapi.prototype.report = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
 
   if (!self.isAuth()) {
     if (error)
@@ -1529,8 +1571,11 @@ appc.gapi.prototype.report = function(obj, success, error) {
 };
 
 /* Events */
-appc.gapi.prototype.event = function(obj, success, error) {
+appc.gapi.prototype.event = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
 
   if (!self.isAuth()) {
     if (error)
@@ -1551,12 +1596,13 @@ appc.gapi.prototype.event = function(obj, success, error) {
 };
 
 /* Security */
-appc.gapi.prototype.pair = function(obj, success, error) {
+appc.gapi.prototype.pair = function(cobj, success, error) {
+  var obj;
   var self = this;
   var auth = 0, err = 0, op;
-  var iobj;
 
-  iobj = this.defaultArgs(obj, success, error);
+  obj = JSON.parse(JSON.stringify(cobj));
+  obj = this.defaultArgs(obj, success, error);
 
   if (!self.isAuth()) {
     if (error)
@@ -1581,41 +1627,41 @@ appc.gapi.prototype.pair = function(obj, success, error) {
    * key_max, key_value, key_length, init, resp
    */
     op = (typeof obj['op'] == "undefined") ? 2 : obj['op'];
-    iobj['op'] = op;
+    obj['op'] = op;
     if (op == 1) {
-      iobj['iocap'] = (typeof obj['iocap'] == "undefined") ? 0x03: obj['iocap'];
-      iobj['oob'] = (typeof obj['oob'] == "undefined") ? 0 : obj['oob'];
+      obj['iocap'] = (typeof obj['iocap'] == "undefined") ? 0x03: obj['iocap'];
+      obj['oob'] = (typeof obj['oob'] == "undefined") ? 0 : obj['oob'];
       if (obj['bonding'])
 	auth |= appc.SM_BONDING;
       if (obj['mitm'])
 	auth |= appc.SM_MITM;
       if (obj['secure'])
 	auth |= appc.SM_SECURE;
-      iobj['auth'] = auth;
-      iobj['key_max'] = (typeof obj['key_max'] == "undefined") ? 16 : obj['key_max'];
-      iobj['key_value'] = (typeof obj['key_value'] == "undefined") ? "" : obj['key_value'];
-      iobj['key_length'] = iobj['key_value'].length;
-      iobj['init'] = (typeof obj['init'] == "undefined") ? 0: obj['init'];
-      iobj['resp'] = (typeof obj['resp'] == "undefined") ? 0: obj['resp'];
+      obj['auth'] = auth;
+      obj['key_max'] = (typeof obj['key_max'] == "undefined") ? 16 : obj['key_max'];
+      obj['key_value'] = (typeof obj['key_value'] == "undefined") ? "" : obj['key_value'];
+      obj['key_length'] = obj['key_value'].length;
+      obj['init'] = (typeof obj['init'] == "undefined") ? 0: obj['init'];
+      obj['resp'] = (typeof obj['resp'] == "undefined") ? 0: obj['resp'];
     }
 
     /* Validate input */
     if (op !== 0 && op !== 1 && op !==2 && op !== 3)
       err = 1;
     if (op == 1) {
-      if (typeof iobj['iocap'] != "number" || iobj['iocap'] > 0x04)
+      if (typeof obj['iocap'] != "number" || obj['iocap'] > 0x04)
 	err = 1;
-      if (typeof iobj['oob'] != "number")
+      if (typeof obj['oob'] != "number")
 	err = 1;
-      if (typeof iobj['key_max'] != "number" || iobj['key_max'] > 16)
+      if (typeof obj['key_max'] != "number" || obj['key_max'] > 16)
 	err = 1;
-      if (typeof iobj['key_value'] != "string" || iobj['key_value'].length > 16)
+      if (typeof obj['key_value'] != "string" || obj['key_value'].length > 16)
 	err = 1;
-      if (typeof iobj['key_length'] != "number" || iobj['key_length'] > 16)
+      if (typeof obj['key_length'] != "number" || obj['key_length'] > 16)
 	err = 1;
-      if (typeof iobj['init'] != "number" || iobj['init'] > 7)
+      if (typeof obj['init'] != "number" || obj['init'] > 7)
 	err = 1;
-      if (typeof iobj['resp'] != "number" || iobj['resp'] > 7)
+      if (typeof obj['resp'] != "number" || obj['resp'] > 7)
 	err = 1;
     }
 
@@ -1638,12 +1684,12 @@ appc.gapi.prototype.pair = function(obj, success, error) {
   }
 
   /* Remove 'node' parameter if list pairs */
-  if (iobj['op'] == 2)
-    delete iobj['node'];
+  if (obj['op'] == 2)
+    delete obj['node'];
 
 
   self._setProcessing(null, 1);
-  return this.transport.pair(iobj,
+  return this.transport.pair(obj,
 			     function(robj) {
 			       self._setProcessing(null, 0);
 			       if (!robj) {
@@ -1671,8 +1717,11 @@ appc.gapi.prototype.pair = function(obj, success, error) {
 };
 
 /* Gateway configuration */
-appc.gapi.prototype.configuration = function(obj, success, error) {
+appc.gapi.prototype.configuration = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
 
   if (!self.isAuth()) {
     if (error)
@@ -1712,19 +1761,22 @@ appc.gapi.prototype.configuration = function(obj, success, error) {
 				      });
 };
 
-appc.gapi.prototype.version = function(obj, success, error) {
-  this.transport.version(obj, success, error);
+appc.gapi.prototype.version = function(cobj, success, error) {
+  this.transport.version(cobj, success, error);
 };
 
-appc.gapi.prototype.versionsdk = function(obj, success, error) {
+appc.gapi.prototype.versionsdk = function(cobj, success, error) {
   if (success)
     success({'result': appc.ERROR_SUCCESS, 'version': appc.VERSION});
   return appc.VERSION;
 };
 
 /* Testing / Debugging */
-appc.gapi.prototype.echo = function(obj, success, error) {
+appc.gapi.prototype.echo = function(cobj, success, error) {
+  var obj;
   var self = this;
+
+  obj = JSON.parse(JSON.stringify(cobj));
 
   if (!self.isAuth()) {
     if (error)
@@ -2625,51 +2677,51 @@ appc.gapi.http.prototype.requestDispatch = function() {
 
 
 
-appc.gapi.http.prototype.call = function(cmd, obj, success, error) {
+appc.gapi.http.prototype.call = function(cmd, cobj, success, error) {
   var self = this;
-  var cobj, method, url, xhr;
+  var obj, method, url, xhr;
 
-  if (!obj)
+  if (!cobj)
     return 0;
 
-  cobj = JSON.parse(JSON.stringify(obj));
+  obj = JSON.parse(JSON.stringify(cobj));
 
-  url = this.buildURL(cmd, cobj);
+  url = this.buildURL(cmd, obj);
   method = 'POST';
   if (this.isNonAuthenticatable(cmd)) {
     ;
   } else {
-    if (!cobj['tid'])
-      cobj['tid'] = this.tid;
-    if (!cobj['token'])
-      cobj['token'] = this.token;
-    if (!cobj['gwid'])
-      cobj['gwid'] = this.gwid;
+    if (!obj['tid'])
+      obj['tid'] = this.tid;
+    if (!obj['token'])
+      obj['token'] = this.token;
+    if (!obj['gwid'])
+      obj['gwid'] = this.gwid;
 
     /* Multi-channel support
      * Sniff/replace GWID for backward compatibility
      */
     if (cmd == '/c1/event')
-      cobj['gwid'] += '/' + this.channelEventIn;
+      obj['gwid'] += '/' + this.channelEventIn;
     else if (cmd == '/c1/report')
-      cobj['gwid'] += '/' + this.channelReportIn;
+      obj['gwid'] += '/' + this.channelReportIn;
     else if (cmd == '/c1/notified')
-      cobj['gwid'] += '/' + this.channelReportIn;
+      obj['gwid'] += '/' + this.channelReportIn;
     else
-      cobj['gwid'] += '/' + this.channelDataIn;
+      obj['gwid'] += '/' + this.channelDataIn;
   }
 
   /* HTTP request */
   /* Node.js */
   if (appc.nodejs) {
-    xhr = this.nodeXHR(method, url, cobj, success, error);
+    xhr = this.nodeXHR(method, url, obj, success, error);
 
   /* Browser */
   } else if (typeof jQuery != "undefined" && $ === jQuery) {
-    xhr = this.jqXHR(method, url, cobj, success, error);
+    xhr = this.jqXHR(method, url, obj, success, error);
 
   } else {
-    xhr = this.xhr(method, url, cobj, success, error);
+    xhr = this.xhr(method, url, obj, success, error);
   }
 
   return xhr;
