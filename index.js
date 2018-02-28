@@ -107,7 +107,7 @@ if (typeof window == "undefined") {
 }
 
 /* API release version */
-appc.VERSION = "1.0.4";
+appc.VERSION = "1.0.5";
 
 /* API errors */
 appc.ERROR_SUCCESS = 200;
