@@ -58,7 +58,7 @@
  * Therefore, a caller should be prepared to re-authenticate via login
  * at any time.
  *
- * Serialization:
+ * Serialization (locking, not data serialization):
  * The gateway imposes certain limitations on parallel API commands.
  * Only one device scan may be outstanding at a time. 
  * Typically, only one command may be outstanding for each connected device.
@@ -107,7 +107,7 @@ if (typeof window == "undefined") {
 }
 
 /* API release version */
-appc.VERSION = "1.0.5";
+appc.VERSION = "1.1.5";
 
 /* API errors */
 appc.ERROR_SUCCESS = 200;
@@ -217,7 +217,6 @@ appc.EVENT_LE_DIRECT_ADVERTISING_REPORT =      18;
  */
 appc.EVENT_ENCRYPT_CHANGE =                    19;
 appc.EVENT_ENCRYPTION_KEY_REFRESH_COMPLETE =   20;
-/* TBD */
 /* Security Request
  * subcode: security request: authentication request
  */
@@ -333,10 +332,10 @@ appc.gapi.prototype.config = function(cobj) {
   if (typeof cobj['gapiUser'] != "undefined")
     this.gapiUser = cobj['gapiUser'];
   else if (this.user != "undefined")
-    this.gapiUser = this.user
+    this.gapiUser = this.user;
   if (typeof cobj['gapiPwd'] != "undefined")
     this.gapiPwd = cobj['gapiPwd'];
-  else if (this.token != "undefined")
+  else if (typeof cobj['token'] != "undefined")
     this.gapiPwd = this.token;
 
   if (typeof cobj['gwid'] != "undefined") {
@@ -1285,6 +1284,7 @@ appc.gapi.prototype.writenoresponse = function(cobj, success, error) {
 
   obj = JSON.parse(JSON.stringify(cobj));
   obj = this.defaultArgs(obj, success, error);
+  obj['noresponse'] = 1;
 
   if (!self.isAuth()) {
     if (error)
@@ -2039,6 +2039,8 @@ appc.gapi.http = function() {
 
   this.connected = 0;
   this.polling = 0;
+  this.pollerXHR = 0;
+  this.streaming = 0;
   this.eventCallbacks = new Object();
   this.reportCallbacks = new Object();
 
@@ -2046,7 +2048,6 @@ appc.gapi.http = function() {
   this.notifying = 0;
   this.notifySuccess = null;
   this.notifyError = null;
-  this.outstanding = 0;
 
   this.nonAuthenticatable = 
     [
@@ -2054,10 +2055,7 @@ appc.gapi.http = function() {
      '/c1/create'
     ];
 
-  this.requestCmd = new Array();
-  this.requestNotify = new Array();
-  this.requestEvent = new Array();
-  this.requestReport = new Array();
+  this.requestOp = new Object();
 
 
   this.useSSL = 1;
@@ -2102,9 +2100,22 @@ appc.gapi.http.prototype.open = function(parent, success, error) {
   if (success)
     success({});
 };
-appc.gapi.http.prototype.close = function(obj, success, error) {
-  if (success)
-    success({});
+appc.gapi.http.prototype.close = function(parent, success, error) {
+  var self = this;
+  var obj;
+
+  obj = new Object();
+  obj['token'] = this.token;
+  obj['gwid'] = this.gwid;
+
+  /* Soft close event-stream */
+  this.call('/c1/close', obj,
+	    function(robj) {
+	      self.eventClose();
+	      if (success)
+		success({});
+
+	    }, error);
 };
 appc.gapi.http.prototype.parseResponse = function() {
 };
@@ -2326,37 +2337,78 @@ appc.gapi.http.prototype.notifier = function(obj, success, error) {
 
 appc.gapi.http.prototype.report = function(obj, success, error) {
   var did = obj['did'];
+  var ret;
   if (typeof this.reportCallbacks[did] == "undefined") {
     this.reportCallbacks[did] = new Object();
   }
   this.reportCallbacks[did]['success'] = success;
   this.reportCallbacks[did]['error'] = error;
 
-  this.startPoller(obj, success, error);
+  ret = this.startPoller(obj, success, error);
+  if (ret)
+    this.pollerXHR = ret;
+
+  return ret;
 };
 
 appc.gapi.http.prototype.event = function(obj, success, error) {
   var did = obj['did'];
+  var ret;
   if (typeof this.eventCallbacks[did] == "undefined") {
     this.eventCallbacks[did] = new Object();
   }
   this.eventCallbacks[did]['success'] = success;
   this.eventCallbacks[did]['error'] = error;
 
-  this.startPoller(obj, success, error);
+  ret = this.startPoller(obj, success, error);
+  if (ret)
+    this.pollerXHR = ret;
+
+  return ret;
 };
+appc.gapi.http.prototype.eventClose = function() {
+  var self = this;
+
+  /* Abort and remove poller XMLHTTPRequest */
+  if (self.pollerXHR) {
+    if (self.pollerXHR.abort) {
+      if (self.pollerXHR.socket && self.pollerXHR.socket.destroy) {
+	self.pollerXHR.socket.destroy();
+      }
+      self.pollerXHR.abort();
+
+    } else if (self.pollerXHR.EventSource) {
+      self.pollerXHR.EventSource.close();
+
+    } else {
+      if (self.verbose)
+	console.log('appc.gapi.http.eventClose: no pollerXHR.abort');
+    }
+
+    self.pollerXHR = 0;
+    self.streaming = 0;
+
+  } else {
+    if (self.verbose)
+      console.log('appc.gapi.http.eventClose: no pollerXHR');
+  }
+};
+
 
 appc.gapi.http.prototype.startPoller = function(obj, success, error) {
   var self = this;
+  var ret = 0;
   if (!self.polling && (success || error)) {
     self.polling = 1;
-    self.poller(obj, null, null);
+    ret = self.poller(obj, null, null);
   } else if (self.polling && !success && !error) {
+    self.eventClose();
     self.polling = 0;
   } else {
     if (self.verbose)
-      console.log('appc.gapi.http.report: already polling...request ignored');
+      console.log('appc.gapi.http.startPoller: already polling...request ignored');
   }
+  return ret;
 };
 
 /* Event/Report poller
@@ -2364,85 +2416,68 @@ appc.gapi.http.prototype.startPoller = function(obj, success, error) {
  */
 appc.gapi.http.prototype.poller = function(obj, success, error) {
   var self = this;
-  this.request('/c1/event', obj,
+  var ret;
+
+  ret = this.request('/c1/event', obj,
 	    function(robj) {
 	      var event, node, ok, report;
 
-	      if (!robj['result'] || 
-		  (typeof robj['event'] == "undefined" &&
-		   typeof robj['report'] == "undefined")) {
-		if (self.eventCallbacks['*']) {
-		  if (self.eventCallbacks['*'][error]) {
-		    self.eventCallbacks['*'][error](robj);
-		  }
-		} else if (self.reportcallbacks['*']) {
-		  if (self.reportCallbacks['*'][error]) {
-		    self.reportCallbacks['*'][error](robj);
-		  }
-		}
-		return;
-	      }
+	      if (self.verbose)
+		console.log('poller: robj: ' + JSON.stringify(robj));
 
 	      ok = (robj['result'] == appc.ERROR_SUCCESS) ? true : false;
 	      node = robj['node'];
 	      event = robj['event'];
 	      report = robj['report'];
 
-	      if (node) {
-		if (event) {
-		  if (self.eventCallbacks[node]) {
-		    if (ok && self.eventCallbacks[node]['success'])
-		      self.eventCallbacks[node]['success'](robj);
-		    else if (!ok && self.eventCallbacks[node]['error'])
-		      self.eventCallbacks[node]['error'](robj);
-		  }
+	      /* Wildcard callback, if node empty or no specific callback */
+	      if (!node || 
+		  (event && !self.eventCallbacks[node]) ||
+		  (report && !self.reportCallbacks[node]))
+		node = '*';
 
-		  /* Clear serialization on spurious disconnect; 
-		   * transaction may have been interrupted and not complete
-		   */
-		  if (obj && obj['event'] == appc.EVENT_DISCONNECT) {
-		    if (obj['node']) {
-		      self.parent._setProcessing(obj['node'], 0);
+	      if (event) {
+		if (self.eventCallbacks[node]) {
+		  if (ok && self.eventCallbacks[node]['success'])
+		    self.eventCallbacks[node]['success'](robj);
+		  else if (!ok && self.eventCallbacks[node]['error'])
+		    self.eventCallbacks[node]['error'](robj);
+		}
+
+		/* Clear serialization on spurious disconnect; 
+		 * transaction may have been interrupted and never completed
+		 */
+		if (event == appc.EVENT_DISCONNECT) {
+		  if (robj['node']) {
+		    if (robj['node'] == '*') {
+		      if (self.verbose)
+			console.log('appc.gapi.http.poller: ERROR: disconnect but no node');
+		    } else {
+		      if (self.verbose)
+			console.log('appc.gapi.http.poller: disconnect...unlock node: ' + robj['node']);
+		      self.parent._setProcessing(robj['node'], 0);
 		    }
 		  }
-
-		} else if (report) {
-		  if (self.reportCallbacks[node]) {
-		    if (ok && self.reportCallbacks[node]['success'])
-		      self.reportCallbacks[node]['success'](robj);
-		    else if (!ok && self.reportCallbacks[node]['error'])
-		      self.reportCallbacks[node]['error'](robj);
-		  }
 		}
-		
-	      } else {
-		if (event) {
-		  if (self.eventCallbacks['*']) {
-		    if (ok && self.eventCallbacks['*']['success'])
-		      self.eventCallbacks['*']['success'](robj);
-		    else if (!ok && self.eventCallbacks['*']['error'])
-		      self.eventCallbacks['*']['error'](robj);
-		  }
-		} else if (report) {
-		  if (self.reportCallbacks['*']) {
-		    if (ok && self.reportCallbacks['*']['success'])
-		      self.reportCallbacks['*']['success'](robj);
-		    else if (!ok && self.reportCallbacks['*']['error'])
-		      self.reportCallbacks['*']['error'](robj);
-		  }
+
+	      } else if (report) {
+		if (self.reportCallbacks[node]) {
+		  if (ok && self.reportCallbacks[node]['success'])
+		    self.reportCallbacks[node]['success'](robj);
+		  else if (!ok && self.reportCallbacks[node]['error'])
+		    self.reportCallbacks[node]['error'](robj);
 		}
 	      }
 		
-	      if (self.polling) {
-		setTimeout(function() {
-		  self.poller(obj, null, null);
-		  /* TBD: min/max settable by client? */
-		}, 1000);
+	      /* Restart poller, if requested */
+	      if (self.polling && !self.streaming) {
+		self.poller(obj, null, null);
 	      }
 
 	    },
 	    function(robj) {
 	      self.polling = 0;
+	      self.streaming = 0;
 	      if (event) {
 		if (self.eventCallbacks['*']) {
 		  if (self.eventCallbacks['*'][error]) {
@@ -2457,6 +2492,7 @@ appc.gapi.http.prototype.poller = function(obj, success, error) {
 		}
 	      }
 	    });
+  return ret;
 };
 
 
@@ -2471,19 +2507,17 @@ appc.gapi.http.prototype.pair = function(obj, success, error) {
 };
 
 appc.gapi.http.prototype.version = function(obj, success, error) {
-  if (error)
-    error({'result':appc.ERROR_REQUEST_NOT_FOUND});
-  return 0;
+  return this.request('/c1/version', obj,
+		      function(robj) {
+			if (robj && robj['result'] == 200) {
+			  if (success)
+			    success(robj);
+			}
+		      }, error);
 };
 
 
-/* 
- * HTTP request entry point: 
- * - enqueue request, according to type (Notify, non-Notify)
- * - invoke request dispatcher
- *
- * TBD: no longer needed if separate MQTT data/Notify channels 
- */
+/* Create and invoke HTTP request */
 appc.gapi.http.prototype.request = function(cmd, obj, success, error) {
   var self = this;
   var key, requestDesc, requestObject, ret;
@@ -2494,6 +2528,7 @@ appc.gapi.http.prototype.request = function(cmd, obj, success, error) {
     return 0;
   }
 
+  /* Get client arguments */
   requestObject = new Object();
   for (key in obj) {
     if (obj.hasOwnProperty(key))
@@ -2507,67 +2542,79 @@ appc.gapi.http.prototype.request = function(cmd, obj, success, error) {
     'error': error
   };
 
-  if (cmd.indexOf('event') != -1) {
-    this.requestEvent.push(requestDesc);
-  } else if (cmd.indexOf('report') != -1) {
-    this.requestReport.push(requestDesc);
-  } else if (cmd.indexOf('notified') != -1) {
-    this.requestNotify.push(requestDesc);
-  } else {
-    this.requestCmd.push(requestDesc);
-  }
+  var iobj = requestDesc['obj'];
+  var did = (iobj['did'] && iobj['did'] != '*') ? iobj['did'] : '';
+  var key = self.requestKey(did, cmd);
+  if (self.verbose && this.requestOp[key])
+    console.log('appc.gapi.http.request: ERROR: key: ' + key + ' exists');
 
-  ret = this.requestDispatch();
+  /* Cache request (including response handler) */
+  this.requestOp[key] = requestDesc;
+
+  ret = this.requestDispatch(requestDesc);
   return ret;
 };
 
+appc.gapi.http.prototype.requestKey = function(did, c) {
+  return did + '_' + c;
+};
+
 /* HTTP request dispatcher */
-appc.gapi.http.prototype.requestDispatch = function() {
+appc.gapi.http.prototype.requestDispatch = function(requestDesc) {
   var self = this;
-  var cmd, ret, requestDesc;
+  var cmd, ret;
 
-  if (this.outstanding)
-    return 0;
-
-  /* Check for oldest command request */
-  if (this.requestCmd.length > 0) {
-    requestDesc = this.requestCmd[this.requestCmd.length - 1];
-
-  } else if (this.requestEvent.length > 0) {
-    requestDesc = this.requestEvent[this.requestEvent.length - 1];
-
-  } else if (this.requestReport.length > 0) {
-    requestDesc = this.requestReport[this.requestReport.length - 1];
-
-  /* Or, check for oldest notified request */
-  } else if (this.requestNotify.length > 0) {
-    requestDesc = this.requestNotify[this.requestNotify.length - 1];
-
-  } else {
-    if (self.verbose)
-      console.log('appc.gapi.http.requestDispatch: no request queued');
-    return 0;
-  }
+  if (self.verbose)
+    console.log('requestDispatch: start: ' + requestDesc['cmd']);
 
   cmd = requestDesc['cmd'];
   if (self.verbose)
     console.log('appc.gapi.http.requestDispatch: ' + cmd);
-  this.outstanding = cmd;
+
   ret = this.call(cmd, 
 		  requestDesc['obj'], 
 		  function(robj) {
-		    var nextRequestDesc, prevRequestDesc, success;
+		    var c, did, key, nextRequestDesc, prevRequestDesc, success;
+
+		    if (self.verbose)
+		      console.log('appc.gapi.http.requestDispatch: response: cmd: ' + cmd + ', robj: ' + JSON.stringify(robj));
+
+		    /* Get original command (empty object is timeout) */
+		    did = (robj['node'] && (robj['node'] != '*')) ? robj['node'] : '';
+		    c = self.mapResponseToRequest(robj);
+		    if (!c)
+		      return;
+
+		    /* Get cached request */
+		    key = self.requestKey(did, c);
+		    if (!self.requestOp[key] && did)
+		      key = self.requestKey('', c); // check events for '*'
+		    if (!self.requestOp[key]) {
+		      if (self.verbose)
+			console.log('appc.gapi.http.requestDispatch: no key: ' + key + '...skipping');
+		      return;
+		    }
+
+		    prevRequestDesc = self.requestOp[key];
+		    if (!prevRequestDesc) {
+		      if (self.verbose)
+			console.log('appc.gapi.http.request: ERROR: response, but no outstanding request!');
+		      return;
+		    }
+
+		    success = prevRequestDesc['success'];
 
 		    /* Process response to non-Event/non-Report request */
 		    if (cmd.indexOf('notified') == -1 && 
 			cmd.indexOf('event') == -1 &&
 			cmd.indexOf('report') == -1) {
+
+		      delete self.requestOp[key];
+
 		      /* Response must be non-Notifications */
 		      if (!robj['notifications']) {
 			if (self.verbose)
-			  console.log('appc.gapi.http.requestDispatch: cmd: ' + cmd + ' , response non-notified');
-			prevRequestDesc = self.requestCmd.shift();
-			success = prevRequestDesc ? prevRequestDesc['success'] : null;
+			  console.log('appc.gapi.http.requestDispatch: resp: cmd: ' + cmd + ' , response non-notified');
 
 		      } else {
 			if (self.verbose)
@@ -2580,37 +2627,14 @@ appc.gapi.http.prototype.requestDispatch = function() {
 		      if (self.verbose)
 			console.log('appc.gapi.http.requestDispatch: cmd: ' + cmd + ', response event');
 
-		      prevRequestDesc = self.requestEvent.shift();
-		      success = prevRequestDesc ? prevRequestDesc['success'] : null;
-		    /* Process response to Report request */
-		    } else if (cmd.indexOf('report') != -1) {
-		      if (self.verbose)
-			console.log('appc.gapi.http.requestDispatch: cmd: ' + cmd + ', response report');
-
-		      prevRequestDesc = self.requestReport.shift();
-		      success = prevRequestDesc ? prevRequestDesc['success'] : null;
-		    /* Process response to Notified request */
-		    } else {
-		      /* Response must be Notifications */
-		      if (robj['notifications']) {
-			if (self.verbose)
-			  console.log('appc.gapi.http.requestDispatch: cmd: ' + cmd + ', response notified');
-			prevRequestDesc = self.requestNotify.shift();
-			success = prevRequestDesc ? prevRequestDesc['success'] : null;
-		      } else {
-			if (self.verbose)
-			  console.log('appc.gapi.http.requestDispatch: ERROR: cmd: ' + cmd + ' but response non-notified');
-			return;
+		      /* Check for end of event-stream */
+		      /* N.B. event cmd used for both event/report */
+		      if ((robj['event'] && robj['event'] == -1) ||
+			  (robj['report'] && robj['report'] == -1)) {
+			self.streaming = 0;
+			delete self.requestOp[key];
 		      }
 		    }
-		    if (!prevRequestDesc) {
-		      if (self.verbose)
-			console.log('appc.gapi.http.request: ERROR: response, but no outstanding request!');
-		      return;
-		    }
-
-		    /* N.B. callback may make API request */
-		    self.outstanding = 0;
 
 		    /* Notify caller */
 		    if (typeof success == "function") {
@@ -2620,57 +2644,118 @@ appc.gapi.http.prototype.requestDispatch = function() {
 			console.log('appc.gapi.http.request: NOTE: no success callback');
 		    }
 
-		    /* Dispatch next request, if any */
-		    self.requestDispatch();
-
 		  },
 		  function(robj) {
-		    var prevRequestDesc;
+		    var prevRequestDesc, error;
 		    if (self.verbose)
 		      console.log('appc.gapi.http.requestDispatch: ERROR: ' + JSON.stringify(robj));
-		    if (cmd.indexOf('notified') == -1 &&
-			cmd.indexOf('event') == -1 && 
-			cmd.indexOf('report') == -1) {
-		      if (self.requestNotify.length > 0) {
-			prevRequestDesc = self.requestNotify.shift();
-		      } else {
-			if (self.verbose)
-			  console.log('appc.gapi.happ.requestDispatch: ERROR: notified error but no notify request');
-			return;
-		      }
 
-		    } else if (cmd.indexOf('event') != -1) {
-		      if (self.requestEvent.length > 0) {
-			prevRequestDesc = self.requestEvent.shift();
-		      } else {
-			if (self.verbose)
-			  console.log('appc.gapi.happ.requestDispatch: ERROR: event error but no event request');
-			return;
-		      }
-
-		    } else if (cmd.indexOf('report') != -1) {
-		      if (self.requestReport.length > 0) {
-			prevRequestDesc = self.requestReport.shift();
-		      } else {
-			if (self.verbose)
-			  console.log('appc.gapi.happ.requestDispatch: ERROR: report error but no report request');
-			return;
-		      }
-
-		    } else {
-		      if (self.requestCmd.length > 0) {
-			prevRequestDesc = self.requestCmd.shift();
-		      } else {
-			if (self.verbose)
-			  console.log('appc.gapi.happ.requestDispatch: ERROR: non-notified error but no non-notified request');
-			return;
-		      }
+		    var did = (robj['node'] && (robj['node'] != '*')) ? robj['node'] : '';
+		    var key = self.requestKey(did, robj['c']);
+		    if (!self.requestOp[key]) {
+		      if (self.verbose)
+			console.log('appc.gapi.http.requestDispatch: ERROR: no key: ' + key);
+		      return;
+		    }
+		    prevRequestDesc = self.requestOp[key];
+		    delete self.requestOp[key];
+		    if (!prevRequestDesc) {
+		      if (self.verbose)
+			console.log('appc.gapi.http.requestDispatch: ERROR: no request desc');
+		      return;
 		    }
 
-		    if (typeof prevRequestDesc['error'] == 'function') {
-		      prevRequestDesc['error'](robj);
+		    error = prevRequestDesc['error'];
+		    if (!error || typeof error != "function") {
+		      if (self.verbose)
+			console.log('appc.gapi.http.requestDispatch: ERROR: no error function for key: ' + key);
+		      return;
+		    }
+
+		    if (typeof error == 'function') {
+		      error(robj);
+		    } else {
+		      if (self.verbose)
+			console.log('appc.gapi.http.request: NOTE: no error callback');
 		    }
 		  });
+  return ret;
+};
+
+appc.gapi.http.prototype.mapResponseToRequest = function(robj) {
+  var self = this;
+  var cmd;
+  var ret;
+
+  cmd = robj['c'];
+  if (typeof cmd == "undefined") {
+    if (robj['event']) {
+      return '/c1/event';
+    } else if (robj['report']) {
+      return '/c1/event';
+    } else {
+      if (self.verbose)
+	console.log('mapResponseToRequest: ERROR: no c...ignoring');
+      return '';
+    }
+  }
+  switch(cmd) {
+  case appc.GAPI_GAP_PASSIVE:
+  case appc.GAPI_GAP_ACTIVE:
+    ret = '/c1/list';
+    break;
+  case appc.GAPI_GAP_NODE:
+  case appc.GAPI_GAP_ISENABLED:
+    ret = '/c1/show';
+    break;
+  case appc.GAPI_GAP_CONNECT:
+    ret = '/c1/connect';
+    break;
+  case appc.GAPI_GAP_ENABLE:
+    ret = '/c1/disconnect';
+    break;
+  case appc.GAPI_GAP_ENABLE:
+    ret = '/c1/disconnect';
+    break;
+  case appc.GAPI_GATT_SERVICES_PRIMARY_UUID:
+  case appc.GAPI_GATT_SERVICES:
+    ret = '/c1/services';
+    break;
+  case appc.GAPI_GATT_SERVICE_CHARS:
+  case appc.GAPI_GATT_CHARS_UUID:
+  case appc.GAPI_GATT_CHARS_CHAR:
+    ret = '/c1/characteristics';
+    break;
+  case appc.GAPI_GATT_CHARS_CHAR_DESCS:
+  case appc.GAPI_GATT_DESCS_DESC:
+    ret = '/c1/descriptors';
+    break;
+  case appc.GAPI_GATT_CHARS_CHAR_READ:
+  case appc.GAPI_GATT_CHARS_READ_UUID:
+  case appc.GAPI_GATT_CHARS_CHAR_READ_LONG:
+    ret = '/c1/read';
+    break;
+  case appc.GAPI_GATT_CHARS_CHAR_WRITE:
+  case appc.GAPI_GATT_CHARS_CHAR_WRITE_LONG:
+  case appc.GAPI_GATT_DESCS_DESC_WRITE:
+  case appc.GAPI_GATT_DESCS_DESC_WRITE_LONG:
+    ret = '/c1/write';
+    break;
+  case appc.GAPI_GATT_CHARS_CHAR_NOTIFY_ON:
+  case appc.GAPI_GATT_CHARS_CHAR_INDICATE_ON:
+    ret = '/c1/subscribe';
+    break;
+  case appc.GAPI_GATT_CHARS_CHAR_NOTIFY_OFF:
+  case appc.GAPI_GATT_CHARS_CHAR_INDICATE_OFF:
+    ret = '/c1/unsubscribe';
+    break;
+  case appc.GAPI_VERSION:
+    ret = '/c1/version';
+    break;
+  default:
+    ret = '';
+    break;
+  }
   return ret;
 };
 
@@ -2716,6 +2801,10 @@ appc.gapi.http.prototype.call = function(cmd, cobj, success, error) {
   if (appc.nodejs) {
     xhr = this.nodeXHR(method, url, obj, success, error);
 
+  /* Browser event-stream */
+  } else if (cmd == '/c1/event' || cmd == '/c1/report') {
+    xhr = this.eventStream(method, url, obj, success, error);
+
   /* Browser */
   } else if (typeof jQuery != "undefined" && $ === jQuery) {
     xhr = this.jqXHR(method, url, obj, success, error);
@@ -2730,7 +2819,6 @@ appc.gapi.http.prototype.call = function(cmd, cobj, success, error) {
 /* Node.js XHR request */
 appc.gapi.http.prototype.nodeXHR = function(method, url, obj, success, error) {
   var self = this;
-
   var querystring= require('querystring');
   var http = require('http');
   var https = require('https');
@@ -2746,10 +2834,16 @@ appc.gapi.http.prototype.nodeXHR = function(method, url, obj, success, error) {
     }
   };
 
+  /* Check if request using event-stream */
+  if (url.indexOf('/c1/event') > -1 || url.indexOf('/c1/report') > -1) {
+    self.streaming = 1;
+    options.headers['Accept'] = 'text/event-stream';
+  }
+
   var postData = querystring.stringify(obj);
   if (self.verbose) {
-    util.log('options: ' + querystring.stringify(options));
-    util.log('postData: ' + postData);
+    console.log('options: ' + JSON.stringify(options));
+    console.log('postData: ' + postData);
   }
   var resData = '';
 
@@ -2760,23 +2854,54 @@ appc.gapi.http.prototype.nodeXHR = function(method, url, obj, success, error) {
     func = https.request;
   var sock = func(options, function(res) {
     if (self.verbose) {
-      util.log('https.request: status:' + res.statusCode);
-      util.log('https.request: headers:' + JSON.stringify(res.headers));
+      console.log('appc.gapi.http.nodeXHR: https.request: status:' + res.statusCode);
+      console.log('appc.gapi.http.nodeXHR: https.request: headers:' + JSON.stringify(res.headers));
     }
     res.setEncoding('utf8');
     res.on('data', function(chunk) {
       if (self.verbose)
-	util.log('body: ' + chunk);
-      resData += chunk;
-	
+	console.log('body: ' + chunk);
+
+      /* Check for end of event-stream message */
+      while (chunk && chunk.length > 0 && 
+	     (chunk[chunk.length-1] == '\r' || chunk[chunk.length-1] == '\n')) {
+	  chunk = chunk.substr(0, chunk.length - 1);
+      }
+      if (chunk && chunk.length > 0 && chunk[chunk.length-1] == '\n') {
+	if (self.verbose)
+	  console.log('body: chunk end');
+	chunk = chunk.substr(0, chunk.length - 2);
+
+	resData += chunk;
+
+	var idx = resData.indexOf('data: ');
+	if (idx == 0) {
+	  resData = resData.substr(6);
+	}
+	success(resData ? JSON.parse(resData) : {});
+
+	resData = '';
+
+      } else {
+	resData += chunk;
+      }
     });
     res.on('end', function(payload) {
       if (self.verbose)
-	util.log('end reached: ' + payload);
-      if (payload)
-	resData += payload;
-      if (success)
+	console.log('event-stream end reached: ' + payload);
+
+      if (success) {
+	/* Data should be empty, but handle if not */
+	var idx = resData.indexOf('data: ');
+	if (idx == 0) {
+	  resData = resData.substr(6);
+	}
 	success(resData ? JSON.parse(resData) : {});
+      }
+    });
+    res.on('aborted', function(payload) {
+      if (self.verbose)
+	console.log('aborted: ' + payload);
     });
   });
   sock.write(postData);
@@ -2784,29 +2909,33 @@ appc.gapi.http.prototype.nodeXHR = function(method, url, obj, success, error) {
 
   sock.on('data', function(data) {
     if (self.verbose)
-      util.log(': data: ' + data);
+      console.log(': data: ' + data);
+  });
+  sock.on('abort', function(payload) {
+    if (self.verbose)
+      console.log('sock abort:: ' + payload);
   });
   sock.on('error', function(e) {
     if (self.verbose)
-      util.log(': error: ' + e);
+      console.log(': error: ' + e);
   });
   sock.on('end', function() {
     if (self.verbose)
-      util.log(': end');
+      console.log(': end');
   });
 
   sock.on('clientError', function(exception, tlsSocket) {
     if (self.verbose)
-      util.log('clientError: ');
+      console.log('clientError: ');
   });
   sock.on('newSession', function(sessionId, sessionData, 
 				 iosNotificationCallback){});
   sock.on('secureConnection', function() {
     if (self.verbose)
-      util.log('secureConnection: ');
+      console.log('secureConnection: ');
   });
 
-  return 0;
+  return sock;
 };
 
 /* jQuery AJAX */
@@ -2825,10 +2954,12 @@ appc.gapi.http.prototype.jqXHR = function(method, url, obj, success, error) {
 	if (error)
 	  error({'result': 400, 'error':  textStatus + ', ' + errorThrown});
       });
+  return xhr;
 };
 
 /* XMLHttpRequest */
 appc.gapi.http.prototype.xhr = function(method, url, obj, success, error) {
+  var self = this;
   var arr, ii, str, xhr;
 
   xhr = new XMLHttpRequest();
@@ -2863,6 +2994,70 @@ appc.gapi.http.prototype.xhr = function(method, url, obj, success, error) {
   return xhr;
 };
 
+appc.gapi.http.prototype.eventStream = function(method, url, obj, success, error) {
+  var self = this;
+  var first, resData, source, xhr;
+
+  xhr = new Object();
+  resData = '';
+  self.streaming = 1;
+
+  /* Add query parameters */
+  url += '?';
+  first = 1;
+  for (key in obj) {
+    if (!first)
+      url += '&';
+    first = 0;
+    url += key + '=';
+    url += obj[key];
+  }
+  if (self.verbose)
+    console.log('appc.gapi.http.eventStream: ' + url);
+
+  source = new EventSource(url);
+  source.addEventListener('message', function(e) {
+    var chunk = e.data;
+
+    if (self.verbose)
+      console.log(e.data);
+
+    resData += chunk;
+    if (!chunk || chunk.length < 1)
+      return;
+
+    if (chunk[chunk.length-1] == '}' ||
+	(chunk[chunk.length-1] == '\n' &&
+	 chunk[chunk.length-2] == '\n')) {
+      if (self.verbose)
+	console.log('chunk end');
+      chunk = chunk.substr(0, chunk.length - 2);
+
+      var idx = resData.indexOf('data: ');
+      if (idx == 0) {
+	resData = resData.substr(6);
+      }
+      success(resData ? JSON.parse(resData) : {});
+      resData = '';
+    }
+
+  }, false);
+
+  source.addEventListener('open', function(e) {
+    // Connection was opened.
+  }, false);
+
+  source.addEventListener('error', function(e) {
+    if (e.readyState == EventSource.CLOSED) {
+      // Connection was closed.
+      if (self.verbose)
+	console.log('appc.gapy.http.eventStream: closed');
+    }
+  }, false);
+
+  xhr.EventSource = source;
+  return xhr;
+};
 
 appc.gapi.http.prototype.buildURL = function(cmd, obj) {
   var url = 'http';
@@ -3007,7 +3202,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
     }
   };
   if (self.verbose)
-    util.log('_openNode: ' + querystring.stringify(options));
+    console.log('_openNode: ' + querystring.stringify(options));
   client = mqtt.connect(url, options);
   self.client = client;
   if (self.verbose) {
@@ -3049,8 +3244,6 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
     }
 
   });
-
-  /* TBD: */
 
   client.on('message', function(topic, message, packet) {
     var str = message.toString();
