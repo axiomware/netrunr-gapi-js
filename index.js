@@ -107,7 +107,7 @@ if (typeof window == "undefined") {
 }
 
 /* API release version */
-appc.VERSION = "1.1.5";
+appc.VERSION = "1.1.6";
 
 /* API errors */
 appc.ERROR_SUCCESS = 200;
@@ -187,7 +187,16 @@ appc.GAPI_RSVD54 =                             54;
 appc.GAPI_NO_COMMAND =                         55;
 /* */
 appc.GAPI_VERSION =                            56;
-/* More reserved commands */
+appc.GAPI_DEBUG =                              57;
+appc.GAPI_UPLOAD =                             58;
+appc.GAPI_ADVERTISE =                          59;
+appc.GAPI_REBOOT =                             60;
+/* MORE RESERVED commands */
+/* To add new GAPI client command:
+ * C-1: define integer value here
+ * C-2: add generic, http, and ws functions
+ * C-3: add inverse mapping to appc.gapi.htto.prototype.mapResponseToRequest
+ */
 /* */
 appc.GAPI_NONE =                              999;
 
@@ -262,6 +271,7 @@ appc.gapi = function(obj) {
   this.gapiPwd = '';
   this.gwid = this.getRESTGWID();
   this.gwids = new Array();
+  this.rejectUnauthorized = true;
 
   this.inited = 0;
   this.loggedIn = 0;
@@ -284,7 +294,7 @@ appc.gapi = function(obj) {
   /* TBD: remove this and describe... */
   this.useLegacyDescribe = false;
 
-  this.debug = 0;
+  this.dbg = 0;
   this.verbose = 0;
 };
 
@@ -309,8 +319,11 @@ appc.gapi.prototype.config = function(cobj) {
     this.httpsPort = cobj['httpsPort'];
   if (typeof cobj['port'] != "undefined")
     this.port = cobj['port'];
+  if (typeof cobj['rejectUnauthorized'] != "undefined")
+    this.rejectUnauthorized = cobj['rejectUnauthorized'];
   if (typeof cobj['useSSL'] != "undefined")
     this.useSSL = cobj['useSSL'];
+
 
   if (typeof cobj['type'] != "undefined") {
     if (cobj['type'] !== 'http' && cobj['type'] !== 'ws') {
@@ -359,6 +372,12 @@ appc.gapi.prototype.config = function(cobj) {
 
   if (typeof cobj['useLegacyDescribe'] != "undefined")
     this.useLegacyDescribe = cobj['useLegacyDescribe'];
+
+  /* Pass configuration to transports (handles post-init config changes) */
+  if (this.http)
+    this.http.config(cobj);
+  if (this.transport)
+    this.transport.config(cobj);
 
   return 1;
 };
@@ -1765,10 +1784,26 @@ appc.gapi.prototype.version = function(cobj, success, error) {
   this.transport.version(cobj, success, error);
 };
 
+appc.gapi.prototype.debug = function(cobj, success, error) {
+  this.transport.debug(cobj, success, error);
+};
+
+appc.gapi.prototype.upload = function(cobj, success, error) {
+  this.transport.upload(cobj, success, error);
+};
+
 appc.gapi.prototype.versionsdk = function(cobj, success, error) {
   if (success)
     success({'result': appc.ERROR_SUCCESS, 'version': appc.VERSION});
   return appc.VERSION;
+};
+
+appc.gapi.prototype.advertise = function(cobj, success, error) {
+  this.transport.advertise(cobj, success, error);
+};
+
+appc.gapi.prototype.reboot = function(cobj, success, error) {
+  this.transport.reboot(cobj, success, error);
 };
 
 /* Testing / Debugging */
@@ -2070,7 +2105,9 @@ appc.gapi.http.prototype.init = function(parent) {
     this.port = parent.httpsPort;
   else
     this.port = parent.httpPort;
+  this.rejectUnauthorized = parent.rejectUnauthorized;
 
+  this.dbg = parent.dbg;
   this.verbose = parent.verbose;
 };
 
@@ -2123,10 +2160,14 @@ appc.gapi.http.prototype.config = function(cobj) {
   if (!cobj)
     return 0;
 
+  if (typeof cobj['host'] != "undefined")
+    this.host = cobj['host'];
   if (typeof cobj['port'] != "undefined")
     this.port = cobj['port'];
   if (typeof cobj['useSSL'] != "undefined")
     this.useSSL = cobj['useSSL'];
+  if (typeof cobj['rejectUnauthorized'] != "undefined")
+    this.rejectUnauthorized = cobj['rejectUnauthorized'];
 };
 
 
@@ -2516,6 +2557,44 @@ appc.gapi.http.prototype.version = function(obj, success, error) {
 		      }, error);
 };
 
+appc.gapi.http.prototype.debug = function(obj, success, error) {
+  return this.request('/c1/debug', obj,
+		      function(robj) {
+			if (robj && robj['result'] == 200) {
+			  if (success)
+			    success(robj);
+			}
+		      }, error);
+};
+appc.gapi.http.prototype.upload = function(obj, success, error) {
+  return this.request('/c1/upload', obj,
+		      function(robj) {
+			if (robj && robj['result'] == 200) {
+			  if (success)
+			    success(robj);
+			}
+		      }, error);
+};
+appc.gapi.http.prototype.advertise = function(obj, success, error) {
+  return this.request('/c1/advertise', obj,
+		      function(robj) {
+			if (robj && robj['result'] == 200) {
+			  if (success)
+			    success(robj);
+			}
+		      }, error);
+};
+appc.gapi.http.prototype.reboot = function(obj, success, error) {
+  return this.request('/c1/reboot', obj,
+		      function(robj) {
+			if (robj && robj['result'] == 200) {
+			  if (success)
+			    success(robj);
+			}
+		      }, error);
+};
+
+
 
 /* Create and invoke HTTP request */
 appc.gapi.http.prototype.request = function(cmd, obj, success, error) {
@@ -2714,9 +2793,6 @@ appc.gapi.http.prototype.mapResponseToRequest = function(robj) {
   case appc.GAPI_GAP_ENABLE:
     ret = '/c1/disconnect';
     break;
-  case appc.GAPI_GAP_ENABLE:
-    ret = '/c1/disconnect';
-    break;
   case appc.GAPI_GATT_SERVICES_PRIMARY_UUID:
   case appc.GAPI_GATT_SERVICES:
     ret = '/c1/services';
@@ -2751,6 +2827,12 @@ appc.gapi.http.prototype.mapResponseToRequest = function(robj) {
     break;
   case appc.GAPI_VERSION:
     ret = '/c1/version';
+    break;
+  case appc.GAPI_DEBUG:
+    ret = '/c1/debug';
+    break;
+  case appc.GAPI_UPLOAD:
+    ret = '/c1/upload';
     break;
   default:
     ret = '';
@@ -2831,7 +2913,8 @@ appc.gapi.http.prototype.nodeXHR = function(method, url, obj, success, error) {
     path: url,
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded'
-    }
+    },
+    rejectUnauthorized: this.rejectUnauthorized
   };
 
   /* Check if request using event-stream */
@@ -3132,9 +3215,24 @@ appc.gapi.ws.prototype.init = function(parent) {
   this.parent = parent;
   this.host = parent.host;
   this.port = parent.port;
+  this.rejectUnauthorized = parent.rejectUnauthorized;
 
-  this.debug = parent.debug;
+  this.dbg = parent.dbg;
   this.verbose = parent.verbose;
+};
+
+appc.gapi.ws.prototype.config = function(cobj) {
+  if (!cobj)
+    return 0;
+
+  if (typeof cobj['host'] != "undefined")
+    this.host = cobj['host'];
+  if (typeof cobj['port'] != "undefined")
+    this.port = cobj['port'];
+  if (typeof cobj['useSSL'] != "undefined")
+    this.useSSL = cobj['useSSL'];
+  if (typeof cobj['rejectUnauthorized'] != "undefined")
+    this.rejectUnauthorized = cobj['rejectUnauthorized'];
 };
 
 /* Open Transport */
@@ -3193,10 +3291,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
     clientId: self.clientId,
     username: self.gapiUser,
     password: self.gapiPwd,
-    // N.B. need combined certificate, intermediate CAs, and root CA
-    // in certificate file (e.g. 'certfile') on server. This client
-    // does not seem to use a certificate chain file...
-    //    rejectUnauthorized: false
+    rejectUnauthorized: self.rejectUnauthorized,
     wsOptions: {
       perMessageDeflate: true
     }
@@ -3212,7 +3307,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
 
 
   client.on('connect', function(connack) {
-    if (self.debug)
+    if (self.dbg)
       console.log('appc.gapi.ws._openNode:onconnect:' + JSON.stringify(connack));
     self.connected = 1;
     if (parent.opened)
@@ -3239,7 +3334,7 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
       client.subscribe(self.gwid + '/' + self.channelReportOut, subscribeOptions, scb);
       client.subscribe(self.gwid + '/' + self.channelEventOut, subscribeOptions, scb);
     } catch(e) {
-	if (self.debug)
+	if (self.dbg)
 	  console.log('appc.gapi.ws._openNode: exception: ' + e.message);
     }
 
@@ -3254,19 +3349,19 @@ appc.gapi.ws.prototype._openNode = function(parent, success, error) {
 
   });
   client.on('reconnect', function(data) {
-    if (self.debug)
+    if (self.dbg)
       console.log('appc.gapi.ws._openNode:onreconnect:' + data);
   });
   client.on('close', function(data) {
-    if (self.debug)
+    if (self.dbg)
       console.log('appc.gapi.ws._openNode:onclose: ' + data);
   });
   client.on('offline', function(data) {
-    if (self.debug)
+    if (self.dbg)
       console.log('appc.gapi.ws._openNode:onoffline: ' + data);
   });
   client.on('error', function(data) {
-    if (self.debug)
+    if (self.dbg)
       console.log('appc.gapi.ws._openNode:onerror:' + data);
 
     /* Generic open error */
@@ -3889,6 +3984,24 @@ appc.gapi.ws.prototype.configuration = function(obj, success, error) {
 appc.gapi.ws.prototype.version = function(obj, success, error) {
   this.call(appc.GAPI_VERSION, obj, success, error);
 };
+
+appc.gapi.ws.prototype.debug = function(obj, success, error) {
+  this.call(appc.GAPI_DEBUG, obj, success, error);
+};
+
+appc.gapi.ws.prototype.upload = function(obj, success, error) {
+  this.call(appc.GAPI_UPLOAD, obj, success, error);
+};
+
+appc.gapi.ws.prototype.advertise = function(obj, success, error) {
+  this.call(appc.GAPI_ADVERTISE, obj, success, error);
+};
+
+appc.gapi.ws.prototype.reboot = function(obj, success, error) {
+  this.call(appc.GAPI_REBOOT, obj, success, error);
+};
+
+
 
 appc.gapi.ws.prototype.echo = function(obj, success, error) {
   this.call(appc.GAPI_NO_COMMAND, obj, success, error);
