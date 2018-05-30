@@ -1781,15 +1781,18 @@ appc.gapi.prototype.configuration = function(cobj, success, error) {
 };
 
 appc.gapi.prototype.version = function(cobj, success, error) {
-  this.transport.version(cobj, success, error);
+  var fn = this.transport.version.bind(this.transport);
+  this.globalCall(fn, cobj, success, error);
 };
 
 appc.gapi.prototype.debug = function(cobj, success, error) {
-  this.transport.debug(cobj, success, error);
+  var fn = this.transport.debug.bind(this.transport);
+  this.globalCall(fn, cobj, success, error);
 };
 
 appc.gapi.prototype.upload = function(cobj, success, error) {
-  this.transport.upload(cobj, success, error);
+  var fn = this.transport.upload.bind(this.transport);
+  this.globalCall(fn, cobj, success, error);
 };
 
 appc.gapi.prototype.versionsdk = function(cobj, success, error) {
@@ -1799,11 +1802,13 @@ appc.gapi.prototype.versionsdk = function(cobj, success, error) {
 };
 
 appc.gapi.prototype.advertise = function(cobj, success, error) {
-  this.transport.advertise(cobj, success, error);
+  var fn = this.transport.advertise.bind(this.transport);
+  this.globalCall(fn, cobj, success, error);
 };
 
 appc.gapi.prototype.reboot = function(cobj, success, error) {
-  this.transport.reboot(cobj, success, error);
+  var fn = this.transport.reboot.bind(this.transport);
+  this.globalCall(fn, cobj, success, error);
 };
 
 /* Testing / Debugging */
@@ -1911,13 +1916,52 @@ appc.gapi.prototype._setProcessing = function(node, v) {
   }
 };
 
+/* Check conditions and invoke generic GAPI function (no channel) */
+appc.gapi.prototype.globalCall = function(fn, cobj, success, error) {
+  var obj;
+  var self = this;
+
+  if (!self.isAuth()) {
+    if (error)
+      error({'result':appc.ERROR_AUTHENTICATION_ERROR});
+    return 0;
+  }
+
+  if (!self.transport) {
+    if (error)
+      error({'result':appc.ERROR_BAD_REQUEST});
+    return 0;
+  }
+
+  if(self._isProcessing()) {
+    if (error)
+      error({'result':appc.ERROR_CONFLICT});
+    return 0;
+  }
+
+  obj = JSON.parse(JSON.stringify(cobj));
+
+  self._setProcessing(null, 1);
+
+  fn(obj, 
+     function(robj) {
+       self._setProcessing(null, 0);
+       if (success)
+	 success(robj);
+     },
+     function(robj) {
+       self._setProcessing(null, 0);
+       if (error)
+	 error(robj);
+     });
+};
 
 /* Return object, setting certain default arguments */
 appc.gapi.prototype.defaultArgs = function(obj, success, error) {
   var node;
 
-  /* Authentication */
-  if (!obj['token'])
+  /* Authentication (HTTP-only; WS authenticated during .open) */
+  if (!obj['token'] && this.transport == this.http)
     obj['token'] = this.token;
 
   /* Map caller device id name to API device id name ('node') */
