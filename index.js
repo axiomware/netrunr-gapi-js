@@ -3594,16 +3594,20 @@ appc.gapi.ws.prototype._processMessage = function(str) {
 	  self.eventCallbacks['*']['error'](obj);
       }
 
-      /* Clear serialization on spurious disconnect; 
-       * transaction may have been interrupted and not complete
+      /* Fall through to transaction error handler on spurious disconnect; 
+       * transaction may have been interrupted and not yet complete
        */
-      if (obj && obj['event'] == appc.EVENT_DISCONNECT) {
-	if (obj['node']) {
-	  self.parent._setProcessing(obj['node'], 0);
+      if (obj['event'] == appc.EVENT_DISCONNECT) {
+	/* Paranoia check: node should always exist */
+	if (!node) {
+	  if (self.verbose)
+	    console.log('appc.gapi.ws._processMessage: ERROR: disconnect but no node');
+	  return 0;
 	}
-      }
 
-      return 0;
+      } else
+	return 0;
+
     }
 
     /* Non-connection-directed message callback
