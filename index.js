@@ -2878,6 +2878,9 @@ appc.gapi.http.prototype.mapResponseToRequest = function(robj) {
   case appc.GAPI_UPLOAD:
     ret = '/c1/upload';
     break;
+  case appc.GAPI_ADVERTISE:
+    ret = '/c1/advertise';
+    break;
   default:
     ret = '';
     break;
@@ -3645,11 +3648,15 @@ appc.gapi.ws.prototype._processMessage = function(str) {
     /* Default: connection-directed message callback */
     } else if (ok && self.clientCallbacks[node] &&
 	       self.clientCallbacks[node]['success']) {
-      self.clientCallbacks[node]['success'](obj);
+      var cb = self.clientCallbacks[node]['success'];
+      self.clientCallbacks[node]['success'] = null;
+      cb(obj);
 
     } else if (!ok && self.clientCallbacks[node] &&
 	       self.clientCallbacks[node]['error']) {
-      self.clientCallbacks[node]['error'](obj);
+      var cb = self.clientCallbacks[node]['error'];
+      self.clientCallbacks[node]['error'] = null;
+      cb(obj);
     }
   }
 };
