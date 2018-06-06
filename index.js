@@ -3601,6 +3601,8 @@ appc.gapi.ws.prototype._processMessage = function(str) {
        * transaction may have been interrupted and not yet complete
        */
       if (obj['event'] == appc.EVENT_DISCONNECT) {
+	ok = false;
+
 	/* Paranoia check: node should always exist */
 	if (!node) {
 	  if (self.verbose)
