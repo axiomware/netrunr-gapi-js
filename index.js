@@ -1635,7 +1635,7 @@ appc.gapi.prototype.pair = function(cobj, success, error) {
     return 0;
   }
 
-  if(self._isProcessing()) {
+  if(self._isProcessing(obj['node'])) {
     if (error)
       error({'result':appc.ERROR_CONFLICT});
     return 0;
@@ -1707,10 +1707,10 @@ appc.gapi.prototype.pair = function(cobj, success, error) {
     delete obj['node'];
 
 
-  self._setProcessing(null, 1);
+  self._setProcessing(obj['node'], 1);
   return this.transport.pair(obj,
 			     function(robj) {
-			       self._setProcessing(null, 0);
+			       self._setProcessing(obj['node'], 0);
 			       if (!robj) {
 				 if (self.verbose)
 				   console.log('appc.gapi.pair: success FATAL ERROR: ' + JSON.stringify(robj));
@@ -1728,7 +1728,7 @@ appc.gapi.prototype.pair = function(cobj, success, error) {
 				 success(robj);
 			     },
 			     function(robj) {
-			       self._setProcessing(null, 0);
+			       self._setProcessing(obj['node'], 0);
 			       if (error)
 				 error(robj);
 			     });
