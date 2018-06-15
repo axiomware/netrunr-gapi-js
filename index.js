@@ -1803,7 +1803,103 @@ appc.gapi.prototype.versionsdk = function(cobj, success, error) {
 
 appc.gapi.prototype.advertise = function(cobj, success, error) {
   var fn = this.transport.advertise.bind(this.transport);
-  this.globalCall(fn, cobj, success, error);
+
+  /* Encode ad or sd arrays as len/data strings */
+  var encodeAdv = function(ad) {
+    var str = '';
+
+    if (!ad)
+      return '';
+
+    for (var ii = 0; ii < ad.length; ii++) {
+      var len = ad[ii].length;
+      if (ad[ii].length & 0x01) {
+	if (error)
+	  error({'result': appc.ERROR_PARAMETER_VALUE_NOT_VALID});
+	return;
+      }
+      len /= 2; /* length after string decoded */
+      str += ('0' + len).slice(-2) + ad[ii];
+    }
+    return str;
+  };
+
+  /* GAPI Advertise requires most arguments so check inputs */
+  var nobj = {};
+  var op = cobj['op'];
+  var enable = cobj['enable'];
+  var channels = cobj['channels'];
+  var interval = cobj['interval'];
+  var type = cobj['type'];
+  var period = cobj['period'];
+  var ad = cobj['ad'];
+  var sd = cobj['sd'];
+
+  var isOp = typeof op == "number";
+  var isEnable = typeof enable == "number";
+  var isChannels = typeof channels == "number";
+  var isInterval = typeof interval == "number";
+  var isType = typeof type == "number";
+  var isPeriod = typeof period == "number";
+  var isNumericArgs = isOp && isEnable && isChannels && isInterval && isType && isPeriod;
+  var isAd = (typeof ad == "object") && (ad instanceof Array) && (ad.length > 0);
+  var isSd = (typeof sd == "object") && (sd instanceof Array) && (sd.length > 0);
+
+  if (!isOp) {
+    if (error)
+      error({'result': appc.ERROR_PARAMETER_MISSING});
+    return;
+  }
+
+  /* Ops with numeric args (need to include all) */
+  if (op == 1 || op == 4 || op == 7 || op == 8) {
+    if (!isEnable)
+      enable = 0;
+    if (!isChannels)
+      channels = 0;
+    if (!isInterval)
+      interval = 160;
+    if (!isType)
+      type = 2;
+    if (!isPeriod)
+      period = 0;
+  }
+
+  /* Ops with string args (need to include all) */
+  if (op == 2 || op == 7) {
+    if (!isAd) {
+      if (error)
+	error({'result': appc.ERROR_PARAMETER_MISSING});
+      return;
+    }
+    if (!isSd)
+      sd = [];
+  }
+
+  nobj['op'] = op;
+  nobj['enable'] = enable;
+  nobj['channels'] = channels;
+  nobj['interval'] = interval;
+  nobj['type'] = type;
+  nobj['period'] = period;
+
+  /* Check for valid ops */
+  if (op == 1) {
+    ;
+  } else if (op == 2 || op == 7) {
+    nobj['ad'] = encodeAdv(ad);
+    nobj['sd'] = encodeAdv(sd);
+  } else if (op == 4) {
+    ;
+  } else if (op == 8) {
+    ;
+  } else {
+    if (error)
+      error({'result': appc.ERROR_PARAMETER_VALUE_NOT_VALID});
+    return;
+  }
+
+  this.globalCall(fn, nobj, success, error);
 };
 
 appc.gapi.prototype.reboot = function(cobj, success, error) {
